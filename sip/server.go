@@ -87,8 +87,12 @@ func (c *conn) serve() {
 		var s string
 		var err error
 		if s, err = tp.ReadLine(); err != nil {
-			log.Println("Troubles reading the request line")
-			continue
+			if err==io.EOF {
+				break
+			} else {
+				log.Println("Troubles reading the request line "+ err.Error())
+				continue
+			}
 		}
 		if !isSipStart(s) {
 			log.Println("trash->"+s)
