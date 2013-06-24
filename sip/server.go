@@ -20,7 +20,8 @@ type SipMsg sipparser.SipMsg
 const noLimit int64 = (1 << 63) - 1
 
 type SipHandler interface {
-	Serve(*bufio.Writer,*SipMsg)
+	Serve(*SipMsg)
+	SetStack(*Stack)
 }
 
 
@@ -34,6 +35,7 @@ type conn struct {
 	bufswr     *switchReader        // the *switchReader io.Reader source of buf
 	bufsww     *switchWriter        // the *switchWriter io.Writer dest of buf
 	ex         sync.Mutex
+	calls      map[string]*Stack
 }
 
 // A Server defines parameters for running an SIP server.
@@ -42,7 +44,7 @@ type Server struct {
 	TcpPort           int        // TCP address to listen on, ":http" if empty
 	UdpPort           int        // Unimplemented
 	TlsPort           int        // Unimplemented
-	Handler           SipHandler    // handler to invoke, http.DefaultServeMux if nil
+	Handler           func()SipHandler    // handler to invoke, http.DefaultServeMux if nil
 }
 
 type switchReader struct {
@@ -126,12 +128,22 @@ func (c *conn) serve() {
 		msg.WriteString("\r\n")
 		var myMsg *SipMsg = (*SipMsg)(sipparser.ParseMsg(msg.String()))
 		//log.Println(msg)
-		c.server.Handler.Serve(c.buf.Writer,myMsg)
+		var v *Stack
+		var ok bool;
+		if v, ok = c.calls[myMsg.CallId]; !ok {
+			v = NewStack(c, myMsg.CallId, c.server.Handler())
+			c.calls[myMsg.CallId] = v
+			v.Handler.SetStack(v)
+		}
+		
+		// FIXIT: this create a limitation 1 handler (==call) per connection 
+		// this works but can't be wrong.
+		v.Handler.Serve(myMsg)
 	}
 }
 
 
-func NewServer(BindIp string, TcpPort int, h SipHandler) *Server {
+func NewServer(BindIp string, TcpPort int, h func()SipHandler) *Server {
 	return &Server{
 		BindIp,
 		TcpPort,
@@ -196,5 +208,6 @@ func (srv *Server) newConn(rwc net.Conn) (c *conn, err error) {
 	c.buf = bufio.NewReadWriter(br, bw)
 	c.bufswr = sr
 	c.bufsww = sw
+	c.calls = make(map[string]*Stack)
 	return c, nil
 }
