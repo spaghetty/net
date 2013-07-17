@@ -1,10 +1,17 @@
 package sip
 
 import (
-	"log"
+	//"log"
 	"bytes"
 	"math/rand"
 )
+
+type Dialog struct {
+	CallId string
+	Me     EUri
+	Other  EUri
+	COther EUri
+}
 
 type Stack interface {
 	SetContact(c *EUri)
@@ -13,6 +20,8 @@ type Stack interface {
 	HandleRequest(*Request)
 	HandleResponse(*Response)
 	BuildResponse(*Request, int) *Response
+	BuildRequest(t MethodType, d Dialog) *Request
+	GetDialog(SipMsg) Dialog
 	Send(SipMsg)
 }
 
@@ -50,6 +59,10 @@ func (u *UserAgent)HandleRequest(r *Request) {
 	}
 }
 
+func (u *UserAgent)GetDialog(s SipMsg) Dialog {
+	return getDialog(s, u.Tag)
+}
+
 func (u *UserAgent)HandleResponse(r *Response) {
 	u.UI.HandleResponse(r)
 }
@@ -60,6 +73,8 @@ func (u *UserAgent) BuildResponse(r *Request, status int) *Response{
         res.ProtoMajor = 2
         res.ProtoMinor = 0
 	res.Header = r.Header
+	res.Header.Del("Event")
+	res.Header.Del("Accept")
         res.Request = r
         res.StatusCode = status
         res.Status = StatusText(status)
@@ -77,26 +92,16 @@ func (u *UserAgent) BuildResponse(r *Request, status int) *Response{
         return res
 }
 
+func (u *UserAgent)BuildRequest(t MethodType, d Dialog) *Request{
+	res,_ := NewRequest("NOTIFY", d.COther.U.String(),nil)
+	res.Header.Add("Call-Id", d.CallId)
+	res.Header.Add("From",d.Me.String())
+	res.Header.Add("To",d.Other.String())
+	return res
+}
+
 func (u *UserAgent)Send(msg SipMsg) {
 	u.EP.SendMsg(msg)
-	// switch msg.(type) {
-	// case *Request: u.sendRequest(msg.(*Request))
-	// case *Response: u.sendResponse(msg.(*Response))
-	// }
-}
-
-
-func (u *UserAgent)sendRequest(msg *Request) {
-	log.Println("DOh")
-}
-
-func (u *UserAgent)sendResponse(msg *Response) {
-	// f := msg.GetTo()
-	// if _,ok := f.Params["tag"]; !ok {
-	// 	f.addParam("tag:fottiti")
-	// 	msg.SetTo(f)
-	// }
-	
 }
 
 func generateTag(size int) string{
