@@ -1,6 +1,7 @@
 package sip
 
 import (
+	"io"
 	"strings"
 	"net/textproto"
 )
@@ -15,13 +16,23 @@ func isSipStart(line string) bool {
 	return (line[:s1]=="SIP/2.0" || line[s2+1:]=="SIP/2.0")
 }
 
-type SipMsg struct {
+func isRequest(line string) bool {
+	s1 := strings.Index(line, "/")
+	return !(line[:s1]=="SIP")
+}
+
+
+type SipMsg interface {
+	Write(io.Writer) error
+}
+
+type RawMsg struct {
 	StartLine string
 	Headers   textproto.MIMEHeader
 	Body      string
 }
 
-func (m *SipMsg)IsRequest() bool {
+func (m *RawMsg)IsRequest() bool {
 	return !strings.HasPrefix(m.StartLine, "SIP/")
 }
 

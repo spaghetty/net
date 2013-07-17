@@ -10,22 +10,8 @@ import (
 	"net/textproto"
 )
 
-type UdpClient struct {
-	src *net.UDPAddr
-	srv *Server
-	UserClient SipHandler
-}
-
-func (c *UdpClient)HandleMsg(msg *SipMsg) {
-	if msg.IsRequest() {
-		c.UserClient.HandleRequest(msg)
-	} else {
-		c.UserClient.HandleResponse(msg)
-	}
-}
-
 func (srv *Server)serveUdp(c *net.UDPConn){
-	var buf [512]byte
+	var buf [4096]byte
 	log.Println("start looping")
 	for {
 		n, addr, err := c.ReadFromUDP(buf[0:])
@@ -46,25 +32,37 @@ func (srv *Server)serveUdp(c *net.UDPConn){
 		if !isSipStart(sl) {
 			continue
 		}
-		log.Println(sl)
-		sipmsg := new(SipMsg);
-		sipmsg.StartLine = sl
-		sipmsg.Headers, err = tpr.ReadMIMEHeader()
-		if err != nil {
-			log.Println(err)
-			continue
-		}
-		if v,ok:= srv.Clients[addr.String()]; ok {
-			v.HandleMsg(sipmsg)
-		} else {
-			tmp := &UdpClient{
+		var ep EndPoint
+		var ok bool
+		if ep,ok = srv.Clients[addr.String()]; !ok {
+			ep = &UdpClient{
 				addr,
 				srv,
-				srv.Handler(),
+				nil,
 			}
-			srv.Clients[addr.String()] = tmp
-			tmp.HandleMsg(sipmsg)
+			x := srv.Handler()
+			x.GetStack().SetEndPoint(ep)
+			x.GetStack().SetUserInterface(x)
+			x.GetStack().SetContact(&(srv.UDPContact))
+			ep.SetStack(x.GetStack())
+			srv.Clients[addr.String()] = ep
 		}
+		if isRequest(sl) {
+			smsg,err := ReadRequest(bufio.NewReader(bytes.NewBuffer(buf[:n])))
+			if err!=nil {
+				log.Println(err)
+				continue
+			}
+			ep.HandleMsg(smsg)
+		} else {
+			smsg,_ := ReadResponse(bufio.NewReader(bytes.NewBuffer(buf[:n])),nil)
+			if err!=nil {
+				log.Println(err)
+				continue
+			}
+			ep.HandleMsg(smsg)
+		}
+
 	}
 }
 
@@ -77,6 +75,7 @@ func (srv *Server)ServeUdp() error {
 		log.Println(err)
 	}
 	c, e := net.ListenUDP("udp",udpAddr)
+	srv.udpConn = c;
 	if e!= nil {
 		log.Println(e)
 		return e
@@ -91,9 +90,7 @@ func (srv *Server)ServeUdp() error {
 func (srv *Server)ServeMulticastUdp() error {
 	log.Println("START MULTICAST SERVER")
 	srv.Wait.Add(1)
-	baseAddr := srv.BindIP+":"+strconv.Itoa(srv.UdpPort)
 	mcastAddr := srv.Multicast+":"+strconv.Itoa(srv.UdpPort)
-	_, err := net.ResolveUDPAddr("udp",baseAddr)  // was lAddr
 	mAddr, err := net.ResolveUDPAddr("udp",mcastAddr)
 	if err != nil {
 		log.Println(err)
@@ -103,14 +100,8 @@ func (srv *Server)ServeMulticastUdp() error {
 		log.Println(e)
 		return e
 	}
-	srv.Wait.Done()
-	// _, e = net.ListenUDP("udp",lAddr) // was c
-	// if e!= nil {
-	// 	log.Println(e)
-	// 	return e
-	// }
-	
+	srv.udpConn = m
 	srv.serveUdp(m)
-
+	srv.Wait.Done()
 	return nil
 }
