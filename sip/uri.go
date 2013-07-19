@@ -2,12 +2,17 @@ package sip
 
 import (
 	"log"
+	"net/url"
 	"bytes"
 	"strings"
 )
 
 type parseUriFn func(*lexer) parseUriFn
 
+
+// Extended URI is an uri with extra parameters and common name
+// like: "John Doh" <john.doh@locallab.net>;tag=1234
+// usefull for "From", "To" and "Contact"
 type EUri struct {
 	CommonName string
 	U Uri
@@ -29,8 +34,9 @@ func ParseUri(s string) *Uri{
 	u.Schema="sip"
 	u.Parameters = make(map[string]string)
 	u.Headers = make(map[string]string)
+	tmp,_ := url.QueryUnescape(strings.TrimSpace(s))
 	l := &lexer{
-		s,
+		[]rune(tmp),
 		false,
 		nil,
 		u,
@@ -71,14 +77,20 @@ func (u *Uri)String() string{
 	return b.String()
 }
 
+// Escaped String
+func (u *Uri)EString() string {
+	return url.QueryEscape (u.String());
+}
+
 func ParseEUri(s string) *EUri{
 	u := new(EUri)
 	u.U.Schema="sip"
 	u.U.Parameters = make(map[string]string)
 	u.U.Headers = make(map[string]string)
 	u.Parameters = make(map[string]string)
+	tmp,_ := url.QueryUnescape(strings.TrimSpace(s))
 	l := &lexer{
-		s,
+		[]rune(tmp),
 		true,
 		u,
 		nil,
@@ -106,9 +118,15 @@ func (e *EUri)String() string{
 	return b.String()
 }
 
+func (e *EUri)EString() string {
+	return url.QueryEscape(e.String());
+}
+
+// Below this line just implementation details. 
+// go on carefully :D
 
 type lexer struct {
-	val string
+	val    []rune
 	isEUri bool
 	EData *EUri
 	Data  *Uri
@@ -117,18 +135,17 @@ type lexer struct {
 }
 
 func startParseEUri(l *lexer) parseUriFn{
-	l.val = strings.TrimSpace(l.val)
 	if l.val[l.pos]=='"'{
 		l.pos = l.pos+1
 		l.start = l.pos
 	}
-	l.pos = strings.IndexAny(l.val[l.start:],"\"<")
+	l.pos = IndexRune(l.val[l.start:],"\"<")
 	if l.pos==-1 {
 		return startParseUri
 	} else {
 		l.pos = l.pos+l.start
 	}
-	l.EData.CommonName = l.val[l.start:l.pos]
+	l.EData.CommonName = string(l.val[l.start:l.pos])
 	l.start = l.pos+1
 	for l.val[l.start] == ' ' {
 		l.pos = l.pos+1
@@ -138,42 +155,41 @@ func startParseEUri(l *lexer) parseUriFn{
 }
 
 func startParseUri(l *lexer) parseUriFn{
-	l.val = strings.TrimSpace(l.val)
 	log.Println(l.val[l.start]=='<')
 	if l.val[l.start]=='<' {
 		l.pos = l.pos+1
 		l.start = l.pos
 	}
-	l.pos=strings.Index(l.val[l.start:],":")
+	l.pos=IndexRune(l.val[l.start:],":")
 	if l.pos==-1 {
 		return nameParse
 	} else {
 		l.pos = l.pos+l.start
 	}
 	if l.isEUri {
-		l.EData.U.Schema = l.val[l.start:l.pos]
+		l.EData.U.Schema = string(l.val[l.start:l.pos])
 	} else {
-		l.Data.Schema = l.val[l.start:l.pos]
+		l.Data.Schema = string(l.val[l.start:l.pos])
 	}
 	l.start = l.pos+1
 	return nameParse
 }
 
 func nameParse(l *lexer) parseUriFn{
-	l.pos = strings.IndexAny(l.val[l.start:],":@")
+	l.pos = IndexRune(l.val[l.start:],":@")
 	if l.pos==-1 {
 		return hostParse
 	} else {
-		tmp := strings.Index(l.val[l.start:],"@")
+		tmp := IndexRune(l.val[l.start:],"@")
 		if tmp == -1 {
 			return hostParse
 		}
 		l.pos = l.pos+l.start
 	}
 	if l.isEUri {
-		l.EData.U.User = l.val[l.start:l.pos]
+		l.EData.U.User = string(l.val[l.start:l.pos])
 	} else {
-		l.Data.User = l.val[l.start:l.pos]
+		l.Data.User = string(l.val[l.start:l.pos])
 	}
 	l.start = l.pos+1
 	if l.pos>=len(l.val) {
@@ -194,7 +210,7 @@ func nameParse(l *lexer) parseUriFn{
 }
 
 func passwdParse(l *lexer) parseUriFn{
-	l.pos = strings.Index(l.val[l.start:],"@")
+	l.pos = IndexRune(l.val[l.start:],"@")
 	if l.pos==-1 {
 		l.pos = len(l.val)
 	} else {
@@ -204,25 +220,25 @@ func passwdParse(l *lexer) parseUriFn{
 		return nil
 	}
 	if l.isEUri {
-		l.EData.U.Passwd = l.val[l.start:l.pos]
+		l.EData.U.Passwd = string(l.val[l.start:l.pos])
 	} else {
-		l.Data.Passwd = l.val[l.start:l.pos]
+		l.Data.Passwd = string(l.val[l.start:l.pos])
 	}
 	l.start = l.pos+1
 	return hostParse
 }
 
 func hostParse(l *lexer) parseUriFn {
-	l.pos = strings.IndexAny(l.val[l.start:],";:>")
+	l.pos = IndexRune(l.val[l.start:],";:>")
 	if l.pos==-1 {
 		l.pos = len(l.val)
 	} else {
 		l.pos = l.pos+l.start
 	}
 	if l.isEUri {
-		l.EData.U.Host = l.val[l.start:l.pos]
+		l.EData.U.Host = string(l.val[l.start:l.pos])
 	} else {
-		l.Data.Host = l.val[l.start:l.pos]
+		l.Data.Host = string(l.val[l.start:l.pos])
 	}
 	l.start = l.pos + 1
 	if l.pos>=len(l.val) {
@@ -242,16 +258,16 @@ func hostParse(l *lexer) parseUriFn {
 }
 
 func portParse(l *lexer) parseUriFn {
-	l.pos = strings.IndexAny(l.val[l.start:],";>")
+	l.pos = IndexRune(l.val[l.start:],";>")
 	if l.pos==-1 {
 		l.pos = len(l.val)
 	} else {
 		l.pos = l.pos+l.start
 	}
 	if l.isEUri {
-		l.EData.U.Port = l.val[l.start:l.pos]
+		l.EData.U.Port = string(l.val[l.start:l.pos])
 	} else {
-		l.Data.Port = l.val[l.start:l.pos]
+		l.Data.Port = string(l.val[l.start:l.pos])
 	}
 	l.start = l.pos + 1
 	if l.pos>=len(l.val) {
@@ -268,13 +284,13 @@ func portParse(l *lexer) parseUriFn {
 }
 
 func parameterParse(l *lexer) parseUriFn {
-	l.pos = strings.IndexAny(l.val[l.start:],";?>")
+	l.pos = IndexRune(l.val[l.start:],";?>")
 	if l.pos==-1 {
 		l.pos = len(l.val)
 	} else {
 		l.pos = l.pos+l.start
 	}
-	tmp := l.val[l.start:l.pos]
+	tmp := string(l.val[l.start:l.pos])
 	l.start = l.pos+1
 	t := strings.SplitN(tmp, "=", 2)
 	if l.isEUri {
@@ -298,7 +314,7 @@ func parameterParse(l *lexer) parseUriFn {
 }
 
 func parseEParameter(l *lexer) parseUriFn {
-	l.pos = strings.Index(l.val[l.start:],";")
+	l.pos = IndexRune(l.val[l.start:],";")
 	if l.pos==-1 {
 		return nil
 	} else {
@@ -309,17 +325,16 @@ func parseEParameter(l *lexer) parseUriFn {
 }
 
 func eParameterParse(l *lexer) parseUriFn {
-	l.pos = strings.Index(l.val[l.start:],";")
+	l.pos = IndexRune(l.val[l.start:],";")
 	if l.pos==-1 {
 		l.pos = len(l.val)
 	} else {
 		l.pos = l.pos+l.start
 	}
-	tmp := l.val[l.start:l.pos]
+	tmp := string(l.val[l.start:l.pos])
 	if tmp == "" {
 		return nil
 	}
-	log.Println(tmp)
 	l.start = l.pos+1
 	t := strings.SplitN(tmp, "=", 2)
 	l.EData.Parameters[t[0]] = t[1]

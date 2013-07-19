@@ -1,5 +1,9 @@
 package sip
 
+import (
+	"strings"
+)
+
 const TagCharset = "ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890abcdefghijklmnopqrstuvwxyz"
 
 type MethodType int
@@ -25,10 +29,19 @@ func getdialog(h Header, t string) (d Dialog) {
 	if v,ok := tmp.Parameters["tag"]; !ok || v==t {
 		d.Me = *tmp
 		d.Other = *ParseEUri(h["From"][0])
-		d.COther = *ParseEUri(h["Contact"][0])
 	} else {
 		d.Other = *tmp
 		d.Me = *ParseEUri(h["From"][0])
 	}
 	return
+}
+
+
+func IndexRune(r []rune, s string) int {
+	for i,v := range(r) {
+		if strings.ContainsRune(s,v) {
+			return i
+		}
+	}
+	return -1
 }

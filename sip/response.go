@@ -7,6 +7,7 @@
 package sip
 
 import (
+	"bytes"
 	"bufio"
 	"errors"
 	"io"
@@ -49,7 +50,7 @@ type Response struct {
 	//
 	// The Body is automatically dechunked if the server replied
 	// with a "chunked" Transfer-Encoding.
-	Body io.ReadCloser
+	Body io.Reader
 
 	// ContentLength records the length of the associated content.  The
 	// value -1 indicates that the length is unknown.  Unless Request.Method
@@ -83,6 +84,10 @@ type Response struct {
 
 var ErrNoLocation = errors.New("http: no Location header in response")
 
+
+func (r *Response)GetHeader() Header {
+	return r.Header 
+}
 // Location returns the URL of the response's "Location" header,
 // if present.  Relative redirects are resolved relative to
 // the Response's Request.  ErrNoLocation is returned if no
@@ -144,9 +149,11 @@ func ReadResponse(r *bufio.Reader, req *Request) (resp *Response, err error) {
 	if err != nil {
 		return nil, err
 	}
+
 	resp.Header = Header(mimeHeader)
 
 	fixPragmaCacheControl(resp.Header)
+
 
 	// err = readTransfer(resp, r)
 	// if err != nil {
@@ -204,15 +211,12 @@ func (r *Response) Write(w io.Writer) error {
 	text = strings.TrimPrefix(text, statusCode)
 	io.WriteString(w, "SIP/"+protoMajor+"."+protoMinor+" "+statusCode+text+"\r\n")
 
-	// Process Body,ContentLength,Close,Trailer
-	// tw, err := newTransferWriter(r)
-	// if err != nil {
-	// 	return err
-	// }
-	// err = tw.WriteHeader(w)
-	// if err != nil {
-	// 	return err
-	// }
+	t := bytes.NewBufferString("")
+
+	if r.Body!=nil {
+		size,_ := io.Copy(t , r.Body)
+		r.Header.Set("Content-Length", strconv.FormatInt(size, 10)+"\r\n")
+	}
 
 	// Rest of header
 	err := r.Header.WriteSubset(w, respExcludeHeader)
@@ -222,12 +226,7 @@ func (r *Response) Write(w io.Writer) error {
 
 	// End-of-header
 	io.WriteString(w, "\r\n")
-
-	// Write body and trailer
-	// err = tw.WriteBody(w)
-	// if err != nil {
-	// 	return err
-	// }
+	io.Copy(w, bytes.NewBuffer(t.Bytes()))
 
 	// Success
 	return nil

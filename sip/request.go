@@ -16,7 +16,6 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"mime/multipart"
 	"net/textproto"
 	"net/url"
 	"strconv"
@@ -107,7 +106,7 @@ type Request struct {
 	Header Header
 
 	// The message body.
-	Body io.ReadCloser
+	Body io.Reader
 
 	// ContentLength records the length of the associated content.
 	// The value -1 indicates that the length is unknown.
@@ -123,40 +122,11 @@ type Request struct {
 	// receiving requests.
 	TransferEncoding []string
 
-	// Close indicates whether to close the connection after
-	// replying to this request.
-	Close bool
-
 	// The host on which the URL is sought.
 	// Per RFC 2616, this is either the value of the Host: header
 	// or the host name given in the URL itself.
 	// It may be of the form "host:port".
 	Host string
-
-	// Form contains the parsed form data, including both the URL
-	// field's query parameters and the POST or PUT form data.
-	// This field is only available after ParseForm is called.
-	// The HTTP client ignores Form and uses Body instead.
-	Form url.Values
-
-	// PostForm contains the parsed form data from POST or PUT
-	// body parameters.
-	// This field is only available after ParseForm is called.
-	// The HTTP client ignores PostForm and uses Body instead.
-	PostForm url.Values
-
-	// MultipartForm is the parsed multipart form, including file uploads.
-	// This field is only available after ParseMultipartForm is called.
-	// The HTTP client ignores MultipartForm and uses Body instead.
-	MultipartForm *multipart.Form
-
-	// Trailer maps trailer keys to values.  Like for Header, if the
-	// response has multiple trailer lines with the same key, they will be
-	// concatenated, delimited by commas.
-	// For server requests, Trailer is only populated after Body has been
-	// closed or fully consumed.
-	// Trailer support is only partially complete.
-	Trailer Header
 
 	// RemoteAddr allows HTTP servers and other software to record
 	// the network address that sent the request, usually for
@@ -183,6 +153,10 @@ type Request struct {
 	TLS *tls.ConnectionState
 }
 
+func (r *Request)GetHeader() Header {
+	return r.Header
+}
+
 // ProtoAtLeast returns whether the HTTP protocol used
 // in the request is at least major.minor.
 func (r *Request) ProtoAtLeast(major, minor int) bool {
@@ -193,24 +167,6 @@ func (r *Request) ProtoAtLeast(major, minor int) bool {
 // UserAgent returns the client's User-Agent, if sent in the request.
 func (r *Request) UserAgent() string {
 	return r.Header.Get("User-Agent")
-}
-
-// Referer is misspelled as in the request itself, a mistake from the
-// earliest days of HTTP.  This value can also be fetched from the
-// Header map as Header["Referer"]; the benefit of making it available
-// as a method is that the compiler can diagnose programs that use the
-// alternate (correct English) spelling req.Referrer() but cannot
-// diagnose programs that use Header["Referrer"].
-func (r *Request) Referer() string {
-	return r.Header.Get("Referer")
-}
-
-// multipartByReader is a sentinel value.
-// Its presence in Request.MultipartForm indicates that parsing of the request
-// body has been handed off to a MultipartReader instead of ParseMultipartFrom.
-var multipartByReader = &multipart.Form{
-	Value: make(map[string][]string),
-	File:  make(map[string][]*multipart.FileHeader),
 }
 
 // Return value if nonempty, def otherwise.
@@ -238,16 +194,6 @@ const defaultUserAgent = "Go 1.1 package sip"
 // chunked" to the header. Body is closed after it is sent.
 func (r *Request) Write(w io.Writer) error {
 	return r.write(w, false, nil)
-}
-
-// WriteProxy is like Write but writes the request in the form
-// expected by an HTTP proxy.  In particular, WriteProxy writes the
-// initial Request-URI line of the request with an absolute URI, per
-// section 5.1.2 of RFC 2616, including the scheme and host.
-// In either case, WriteProxy also writes a Host header, using
-// either r.Host or r.URL.Host.
-func (r *Request) WriteProxy(w io.Writer) error {
-	return r.write(w, true, nil)
 }
 
 // extraHeaders may be nil
@@ -281,8 +227,6 @@ func (req *Request) write(w io.Writer, usingProxy bool, extraHeaders Header) err
 
 	fmt.Fprintf(w, "%s %s SIP/2.0\r\n", valueOrDefault(req.Method, "GET"), ruri)
 
-	// Header lines
-	fmt.Fprintf(w, "Host: %s\r\n", host)
 
 	// Use the defaultUserAgent unless the Header contains one, which
 	// may be blank to not send the header.
@@ -295,18 +239,12 @@ func (req *Request) write(w io.Writer, usingProxy bool, extraHeaders Header) err
 	if userAgent != "" {
 		fmt.Fprintf(w, "User-Agent: %s\r\n", userAgent)
 	}
+	t := bytes.NewBufferString("")
 
-	// FIXIT 
-	// Process Body,ContentLength,Close,Trailer
-	// tw, err := newTransferWriter(req)
-	// if err != nil {
-	// 	return err
-	// }
-	// err := tw.WriteHeader(w)
-	// if err != nil {
-	// 	return err
-	// }
-
+	if req.Body!=nil {
+		size,_ := io.Copy(t , req.Body)
+		req.Header.Set("Content-Length", strconv.FormatInt(size, 10)+"\r\n")
+	}
 	// TODO: split long values?  (If so, should share code with Conn.Write)
 	err := req.Header.WriteSubset(w, nil)
 	if err != nil {
@@ -321,12 +259,7 @@ func (req *Request) write(w io.Writer, usingProxy bool, extraHeaders Header) err
 	}
 
 	io.WriteString(w, "\r\n")
-
-	// Write body and trailer
-	// err = tw.WriteBody(w)
-	// if err != nil {
-	// 	return err
-	// }
+	io.Copy(w, bytes.NewBuffer(t.Bytes()))
 
 	if bw != nil {
 		return bw.Flush()
@@ -375,9 +308,9 @@ func NewRequest(method, urlStr string, body io.Reader) (*Request, error) {
 	req := &Request{
 		Method:     method,
 		URL:        u,
-		Proto:      "HTTP/1.1",
-		ProtoMajor: 1,
-		ProtoMinor: 1,
+		Proto:      "SIP/2.0",
+		ProtoMajor: 2,
+		ProtoMinor: 0,
 		Header:     make(Header),
 		Body:       rc,
 		Host:       u.Host,

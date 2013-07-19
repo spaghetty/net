@@ -24,6 +24,7 @@ func isRequest(line string) bool {
 
 type SipMsg interface {
 	Write(io.Writer) error
+	GetHeader() Header
 }
 
 type RawMsg struct {

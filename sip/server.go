@@ -79,10 +79,8 @@ func NewServer(BindIp string, Multicast string, TcpPort int, UdpPort int, h func
 }
 
 func (srv *Server)WriteUDP(msg SipMsg, add *net.UDPAddr) {
-	
 	buf := bytes.NewBufferString("")
 	msg.Write(buf)
-	log.Println(buf.String())
 	srv.WriteUdp.Lock()
 	i, err := srv.udpConn.WriteToUDP(buf.Bytes(), add)
 	srv.WriteUdp.Unlock()
@@ -91,15 +89,22 @@ func (srv *Server)WriteUDP(msg SipMsg, add *net.UDPAddr) {
 
 func (srv *Server)Run() error{
 	if srv.Multicast!="" {
+		log.Println("TRYING FOR MULTICAST")
+		srv.Wait.Add(1)
 		go srv.ServeMulticastUdp()
 	}
 	if srv.BindIP!="" {
 		if srv.TcpPort!=0 {
-			// run tcp server
+			srv.Wait.Add(1)
+			log.Println("TRYING FOR TCP")
+			// FIXME ****
 		}
 		if srv.UdpPort!=0 {
+			srv.Wait.Add(1)
+			log.Println("TRYING FOR UDP")
 			go srv.ServeUdp()
 		}
 	}
+	srv.Wait.Wait()
 	return nil
 }

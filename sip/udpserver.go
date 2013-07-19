@@ -39,6 +39,7 @@ func (srv *Server)serveUdp(c *net.UDPConn){
 				addr,
 				srv,
 				nil,
+				nil,
 			}
 			x := srv.Handler()
 			x.GetStack().SetEndPoint(ep)
@@ -68,7 +69,6 @@ func (srv *Server)serveUdp(c *net.UDPConn){
 
 func (srv *Server)ServeUdp() error {
 	log.Println("START SERVER")
-	srv.Wait.Add(1)
 	baseAddr := srv.BindIP+":"+strconv.Itoa(srv.UdpPort)
 	udpAddr, err := net.ResolveUDPAddr("udp",baseAddr)
 	if err != nil {
@@ -89,7 +89,6 @@ func (srv *Server)ServeUdp() error {
 
 func (srv *Server)ServeMulticastUdp() error {
 	log.Println("START MULTICAST SERVER")
-	srv.Wait.Add(1)
 	mcastAddr := srv.Multicast+":"+strconv.Itoa(srv.UdpPort)
 	mAddr, err := net.ResolveUDPAddr("udp",mcastAddr)
 	if err != nil {

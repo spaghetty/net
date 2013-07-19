@@ -3,6 +3,7 @@ package sip
 import (
 	//"log"
 	"bytes"
+	"strconv"
 	"math/rand"
 )
 
@@ -10,7 +11,6 @@ type Dialog struct {
 	CallId string
 	Me     EUri
 	Other  EUri
-	COther EUri
 }
 
 type Stack interface {
@@ -30,11 +30,13 @@ type UserAgent struct {
 	UI SipHandler
 	C  *EUri
 	Tag string
+	MForwards string
 }
 
 func NewUserAgent() *UserAgent{
 	u := new(UserAgent)
 	u.Tag = generateTag(7)
+	u.MForwards = strconv.Itoa(70)
 	return u
 }
 
@@ -93,10 +95,14 @@ func (u *UserAgent) BuildResponse(r *Request, status int) *Response{
 }
 
 func (u *UserAgent)BuildRequest(t MethodType, d Dialog) *Request{
-	res,_ := NewRequest("NOTIFY", d.COther.U.String(),nil)
+	rc := u.EP.GetContact()
+	res,_ := NewRequest("NOTIFY", rc.U.String(),nil)
+	res.Header.Add("Cseq", "3 NOTIFY")
+	res.Header.Add("Contact", u.C.String())
 	res.Header.Add("Call-Id", d.CallId)
 	res.Header.Add("From",d.Me.String())
 	res.Header.Add("To",d.Other.String())
+	res.Header.Add("Max-Forwards",u.MForwards)
 	return res
 }
 
