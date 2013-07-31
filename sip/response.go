@@ -88,6 +88,33 @@ var ErrNoLocation = errors.New("http: no Location header in response")
 func (r *Response)GetHeader() Header {
 	return r.Header 
 }
+
+func (r *Response)GetContact() *Uri {
+	return ParseUri(r.Header.Get("Contact"))
+}
+
+func (r *Response)GetTo() *EUri {
+	return ParseEUri(r.Header.Get("To"))
+}
+
+func (r *Response)GetFrom() *EUri {
+	return ParseEUri(r.Header.Get("From"))
+}
+
+func (r *Response)GetID() string {
+	f := r.GetFrom()
+	t := r.GetTo()
+	if _,ok:=t.Parameters["tag"]; !ok {
+		return ""
+	}
+	return r.Header.Get("Call-Id") + "-" + f.Parameters["tag"] + "-"+ t.Parameters["tag"]
+}
+
+func (r *Response)GetEarlyID() string {
+	f := r.GetFrom()
+	return r.Header.Get("Call-Id") + "-" + f.Parameters["tag"]
+}
+
 // Location returns the URL of the response's "Location" header,
 // if present.  Relative redirects are resolved relative to
 // the Response's Request.  ErrNoLocation is returned if no

@@ -5,12 +5,14 @@ import (
 	"net"
 	"sync"
 	"bytes"
+	"errors"
 	"strconv"
 )
 
 const TimeFormat = "Mon, 02 Jan 2006 15:04:05 GMT"
 
 type SipHandler interface {
+	Init()
 	SubscribeRequest(*Request)
 	HandleRequest(*Request)
 	HandleResponse(*Response)
@@ -42,6 +44,7 @@ type ResponseWriter interface {
 type Server struct {
 	Wait              *sync.WaitGroup
 	WriteUdp          *sync.Mutex
+	Ready             bool
 	BindIP            string
 	Multicast         string
 	TcpPort           int        // TCP address to listen on, ":http" if empty
@@ -52,10 +55,13 @@ type Server struct {
 	udpConn           *net.UDPConn
 	tcpConn           *net.TCPConn
 	UDPContact        EUri
+	Identities        map[string]Identity
+	dIdentity         Identity
+	mainloop          func(*Server)
 }
 
 
-func NewServer(BindIp string, Multicast string, TcpPort int, UdpPort int, h func()SipHandler) *Server {
+func NewServer(BindIp string, Multicast string, TcpPort int, UdpPort int, h func()SipHandler, l func(*Server)) *Server {
 	var u EUri;
 	u.U.Schema = "sip"
 	u.U.Host = BindIp
@@ -65,6 +71,7 @@ func NewServer(BindIp string, Multicast string, TcpPort int, UdpPort int, h func
 	return &Server{
 		new(sync.WaitGroup),
 		new(sync.Mutex),
+		false,
 		BindIp,
 		Multicast,
 		TcpPort,
@@ -75,6 +82,9 @@ func NewServer(BindIp string, Multicast string, TcpPort int, UdpPort int, h func
 		nil,
 		nil,
 		u,
+		make(map[string]Identity),
+		nil,
+		l,
 	}
 }
 
@@ -84,6 +94,9 @@ func (srv *Server)WriteUDP(msg SipMsg, add *net.UDPAddr) {
 	srv.WriteUdp.Lock()
 	i, err := srv.udpConn.WriteToUDP(buf.Bytes(), add)
 	srv.WriteUdp.Unlock()
+	if err != nil {
+		log.Println(err)
+	}
 	log.Println("toh : ", i , " " , err)
 }
 
@@ -105,6 +118,63 @@ func (srv *Server)Run() error{
 			go srv.ServeUdp()
 		}
 	}
+	srv.Ready = true
+	if srv.mainloop!=nil {
+		go func () {
+			srv.Wait.Add(1)
+			defer srv.Wait.Done()
+			srv.mainloop(srv)
+		}()
+	}
 	srv.Wait.Wait()
 	return nil
+}
+
+
+func (srv *Server)AddIdentity(i Identity) bool{
+	if _,ok := srv.Identities[i.Key()]; !ok {
+		srv.Identities[i.Key()] = i
+		if srv.dIdentity==nil {
+			srv.dIdentity=i // just added become default one
+		}
+		return true
+	}
+	return false
+}
+
+func (srv *Server)DelIdentity(key string) bool {
+	if v, ok := srv.Identities[key]; ok {
+		if v != srv.dIdentity {
+			delete(srv.Identities, key)
+			return true
+		}
+	}
+	return false
+}
+
+func (srv *Server)DefaultIdentity(key string) bool {
+	if v,ok := srv.Identities[key]; ok {
+		srv.dIdentity=v
+		return true
+	}
+	return false
+}
+
+func (srv *Server)BuildNewConnection(con string, endpoint string, idkey string) (Stack,error) {
+	var id Identity;
+	if idkey == "" {
+		id = srv.dIdentity
+	} else {
+		if v, ok := srv.Identities[idkey]; ok {
+			id = v
+		} else {
+			return nil, errors.New("No such key: " + idkey)
+		}
+	}
+	if con == "udp" || con == "UDP" {
+		return srv.buildNewUdpConnection(endpoint, id),nil
+	} else {
+		//srv.buildNewTcpConnection(endpoint, idkey)
+	}
+	return nil, nil
 }

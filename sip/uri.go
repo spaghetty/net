@@ -2,8 +2,8 @@ package sip
 
 import (
 	"log"
-	"net/url"
 	"bytes"
+	"net/url"
 	"strings"
 )
 
@@ -120,6 +120,10 @@ func (e *EUri)String() string{
 
 func (e *EUri)EString() string {
 	return url.QueryEscape(e.String());
+}
+
+func (e *EUri)IsEmpty() bool {
+	return (e.U.Host=="")
 }
 
 // Below this line just implementation details. 

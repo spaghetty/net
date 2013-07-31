@@ -29,14 +29,12 @@ const (
 	defaultMaxMemory = 32 << 20 // 32 MB
 )
 
-// ErrMissingFile is returned by FormFile when the provided file field name
-// is either not present in the request or not a file field.
-var ErrMissingFile = errors.New("http: no such file")
-
 // HTTP request parsing errors.
 type ProtocolError struct {
 	ErrorString string
 }
+
+//var specialHeader = map[string]func(
 
 func (err *ProtocolError) Error() string { return err.ErrorString }
 
@@ -79,9 +77,8 @@ type Request struct {
 	URL *url.URL
 
 	// The protocol version for incoming requests.
-	// Outgoing requests always use HTTP/1.1.
-	Proto      string // "HTTP/1.0"
-	ProtoMajor int    // 1
+	Proto      string // "SIP"
+	ProtoMajor int    // 2
 	ProtoMinor int    // 0
 
 	// A header maps request lines to their values.
@@ -157,6 +154,32 @@ func (r *Request)GetHeader() Header {
 	return r.Header
 }
 
+func (r *Request)GetContact() *Uri {
+	return ParseUri(r.Header.Get("Contact"))
+}
+
+func (r *Request)GetTo() *EUri {
+	return ParseEUri(r.Header.Get("To"))
+}
+
+func (r *Request)GetFrom() *EUri {
+	return ParseEUri(r.Header.Get("From"))
+}
+
+func (r *Request)GetID() string {
+	f := r.GetFrom()
+	t := r.GetTo()
+	if _,ok:=t.Parameters["tag"]; !ok {
+		return ""
+	}
+	return r.Header.Get("Call-Id") + "-" + f.Parameters["tag"] + "-"+ t.Parameters["tag"]
+}
+
+func (r *Request)GetEarlyID() string {
+	f := r.GetFrom()
+	return r.Header.Get("Call-Id") + "-" + f.Parameters["tag"]
+}
+
 // ProtoAtLeast returns whether the HTTP protocol used
 // in the request is at least major.minor.
 func (r *Request) ProtoAtLeast(major, minor int) bool {
@@ -193,11 +216,11 @@ const defaultUserAgent = "Go 1.1 package sip"
 // hasn't been set to "identity", Write adds "Transfer-Encoding:
 // chunked" to the header. Body is closed after it is sent.
 func (r *Request) Write(w io.Writer) error {
-	return r.write(w, false, nil)
+	return r.write(w, nil)
 }
 
 // extraHeaders may be nil
-func (req *Request) write(w io.Writer, usingProxy bool, extraHeaders Header) error {
+func (req *Request) write(w io.Writer, extraHeaders Header) error {
 	host := req.Host
 	if host == "" {
 		if req.URL == nil {
@@ -207,12 +230,6 @@ func (req *Request) write(w io.Writer, usingProxy bool, extraHeaders Header) err
 	}
 
 	ruri := req.URL.RequestURI()
-	if usingProxy && req.URL.Scheme != "" && req.URL.Opaque == "" {
-		ruri = req.URL.Scheme + "://" + host + ruri
-	} else if req.Method == "CONNECT" && req.URL.Path == "" {
-		// CONNECT requests normally give just the host and port, not a full URL.
-		ruri = host
-	}
 	// TODO(bradfitz): escape at least newlines in ruri?
 
 	// Wrap the writer in a bufio Writer if it's not already buffered.
@@ -225,7 +242,7 @@ func (req *Request) write(w io.Writer, usingProxy bool, extraHeaders Header) err
 		w = bw
 	}
 
-	fmt.Fprintf(w, "%s %s SIP/2.0\r\n", valueOrDefault(req.Method, "GET"), ruri)
+	fmt.Fprintf(w, "%s %s SIP/2.0\r\n", valueOrDefault(req.Method, "INVITE"), ruri)
 
 
 	// Use the defaultUserAgent unless the Header contains one, which
@@ -244,6 +261,8 @@ func (req *Request) write(w io.Writer, usingProxy bool, extraHeaders Header) err
 	if req.Body!=nil {
 		size,_ := io.Copy(t , req.Body)
 		req.Header.Set("Content-Length", strconv.FormatInt(size, 10)+"\r\n")
+	} else {
+		req.Header.Set("Content-Length", "0\r\n")
 	}
 	// TODO: split long values?  (If so, should share code with Conn.Write)
 	err := req.Header.WriteSubset(w, nil)
@@ -260,6 +279,7 @@ func (req *Request) write(w io.Writer, usingProxy bool, extraHeaders Header) err
 
 	io.WriteString(w, "\r\n")
 	io.Copy(w, bytes.NewBuffer(t.Bytes()))
+	io.WriteString(w, "\r\n")
 
 	if bw != nil {
 		return bw.Flush()
@@ -519,13 +539,13 @@ func (r *Request) expectsContinue() bool {
 	return hasToken(r.Header.get("Expect"), "100-continue")
 }
 
-func (r *Request) wantsHttp10KeepAlive() bool {
-	if r.ProtoMajor != 1 || r.ProtoMinor != 0 {
-		return false
-	}
-	return hasToken(r.Header.get("Connection"), "keep-alive")
-}
+// func (r *Request) wantsHttp10KeepAlive() bool {
+// 	if r.ProtoMajor != 1 || r.ProtoMinor != 0 {
+// 		return false
+// 	}
+// 	return hasToken(r.Header.get("Connection"), "keep-alive")
+// }
 
-func (r *Request) wantsClose() bool {
-	return hasToken(r.Header.get("Connection"), "close")
-}
+// func (r *Request) wantsClose() bool {
+// 	return hasToken(r.Header.get("Connection"), "close")
+// }

@@ -25,6 +25,11 @@ func isRequest(line string) bool {
 type SipMsg interface {
 	Write(io.Writer) error
 	GetHeader() Header
+	GetContact() *Uri
+	GetID() string
+	GetEarlyID() string
+	GetTo() *EUri
+	GetFrom() *EUri
 }
 
 type RawMsg struct {

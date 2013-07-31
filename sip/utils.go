@@ -9,8 +9,9 @@ const TagCharset = "ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890abcdefghijklmnopqrstuvwx
 type MethodType int
 
 const  (
-	INVITE MethodType = iota
-	NOTIFY MethodType = iota
+	INVITE = iota
+	NOTIFY
+	REGISTER
 )
 
 func getDialog(s SipMsg, t string) (d Dialog) {

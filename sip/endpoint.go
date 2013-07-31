@@ -11,6 +11,8 @@ type EndPoint interface {
 	SetStack(Stack)
 	SendMsg(SipMsg)
 	GetContact() EUri
+	GetServer() *Server
+	Copy() EndPoint
 }
 
 type UdpClient struct {
@@ -20,8 +22,21 @@ type UdpClient struct {
 	C   *EUri
 }
 
+func (c *UdpClient)GetServer() *Server {
+	return c.Srv
+}
+
 func (c *UdpClient)GetStack() Stack {
 	return c.Stk
+}
+
+func (c *UdpClient)Copy() EndPoint {
+	t := new(UdpClient)
+	t.Src = c.Src
+	t.Srv = c.Srv
+	t.C = c.C
+	t.Stk = c.Stk.Copy()
+	return t
 }
 
 func (c *UdpClient)SetStack(s Stack) {
